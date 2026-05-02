@@ -151,7 +151,11 @@ The choice depends on the expected session dynamics; for agentic scenarios with 
 
 ### 5.3 Alternative via free energy minimization
 
-A variational alternative to the heuristic in §5.2 is to interpret $\tau$ as the **precision $\pi$** over next-token policy and update it by minimizing expected free energy. Full derivation requires choices of generative model, $q_\tau$, and target distribution $p^*$ aligned with $\mathbf{G}$, and is left to future work.
+In the active inference framework $\tau$ is interpreted as the **precision $\pi$** over the policy of generating the next token, and updated via minimization of expected free energy:
+
+$$\tau_t = \arg\min_\tau \, \mathbb{E}_{q_\tau}\!\left[F\right]$$
+
+where $q_\tau$ is the distribution over mask-permitted tokens and $F$ is the variational free energy with a target distribution $p^*$ aligned with $\mathbf{G}$. Simplified form: $\tau$ rises in proportion to the KL divergence between the current post-mask attention distribution and the target distribution. The specific form of $F$ depends on the choice of generative model and parametric form of $q_\tau$, addressed in companion work.
 
 ---
 
@@ -165,7 +169,7 @@ $$\pi_i \propto M_i$$
 
 In the cortex this function is performed by GABA-ergic lateral inhibition under top-down control of the prefrontal cortex: PFC sends a signal that raises gain on goal-relevant neurons and lowers it on competitors (Desimone & Duncan, 1995; Miller & Cohen, 2001).
 
-In the proposed formalization (functional analogies, not claims of neural realism):
+In the proposed formalization:
 
 | Biological component | Formal analog |
 |---|---|
@@ -249,7 +253,7 @@ The formalization specifies the functional mechanism. The following directions a
 
    $$\sigma_i = \frac{\|\mathrm{Proj}_\mathcal{G}(\mathbf{a}_{t,i}^{(\ell)})\|}{\|\mathbf{a}_{t,i}^{(\ell)}\|}$$
 
-   where $\mathrm{Proj}_\mathcal{G}$ is the orthogonal projection onto $\mathcal{G}$. *Note:* this generalization yields $\sigma_i \in [0, 1]$ — the **magnitude** of subspace alignment, with no sign. For mask variants whose semantics depend on a signed $\sigma$ (such as the $\sigma < 0$ branch in §3), that branch becomes vacuous; a signed extension would require an oriented half-space rather than a subspace. This removes the "slogan-degradation" risk (item 5) for complex goals. Extension parameters: $K$, training scheme for basis vectors, facet weighting (equal or context-dependent). Natural generalization of the single-vector case, developed in a separate work.
+   where $\mathrm{Proj}_\mathcal{G}$ is the orthogonal projection onto $\mathcal{G}$. This removes the "slogan-degradation" risk (item 5) for complex goals. Extension parameters: $K$, training scheme for basis vectors, facet weighting (equal or context-dependent). Natural generalization of the single-vector case, developed in a separate work.
 
 ---
 
@@ -268,11 +272,11 @@ Each step is on the order of 1–2 weeks of work on a single GPU.
 
 ## References (minimal context set)
 
-- Friston, K. (2010). The free-energy principle: a unified brain theory? *Nature Reviews Neuroscience*, 11(2), 127–138.
+- Friston, K. (2010). The free-energy principle: a unified brain theory? *Nature Reviews Neuroscience*, 11(2).
 - Adams, R. A., Stephan, K. E., Brown, H. R., Frith, C. D., & Friston, K. J. (2013). The computational anatomy of psychosis. *Frontiers in Psychiatry*, 4, 47.
-- Peters, B., Niculae, V., & Martins, A. F. T. (2019). Sparse Sequence-to-Sequence Models. In *Proceedings of ACL 2019*, 1504–1519. arXiv:1905.05702.
-- Desimone, R., & Duncan, J. (1995). Neural mechanisms of selective visual attention. *Annual Review of Neuroscience*, 18, 193–222.
-- Miller, E. K., & Cohen, J. D. (2001). An integrative theory of prefrontal cortex function. *Annual Review of Neuroscience*, 24, 167–202.
-- Yamashita, Y., & Tani, J. (2008). Emergence of functional hierarchy in a multiple timescale neural network model: A humanoid robot experiment. *PLoS Computational Biology*, 4(11), e1000220.
-- Kulveit, J., von Stengel, C., & Leventov, M. (2023). *Predictive Minds: LLMs as Atypical Active Inference Agents.* arXiv:2311.10215.
-- Bulatova, A. (2026). *Why LLM Agents Act Beyond Their Task: A Structural Explanation Through Blocked Adaptation.* EA Forum. https://forum.effectivealtruism.org/posts/EmYkipjGHYLPhAQa4/why-llm-agents-act-beyond-their-task-a-structural
+- Peters, B., Niculae, V., & Martins, A. F. T. (2019). Sparse Sequence-to-Sequence Models. *ACL 2019*.
+- Desimone, R., & Duncan, J. (1995). Neural mechanisms of selective visual attention. *Annual Review of Neuroscience*, 18.
+- Miller, E. K., & Cohen, J. D. (2001). An integrative theory of prefrontal cortex function. *Annual Review of Neuroscience*, 24.
+- Yamashita, Y., & Tani, J. (2008). Emergence of functional hierarchy in a multiple timescale neural network model. *PLoS Computational Biology*.
+- Kulveit, J., von Stengel, R., & Leventov, M. (2023). *Predictive Minds: LLMs as Atypical Active Inference Agents.* arXiv:2311.10215.
+- Bulatova, A. (2026). *Mythos is not an anomaly: why restrictions make agents less predictable, not safer.* EA Forum.

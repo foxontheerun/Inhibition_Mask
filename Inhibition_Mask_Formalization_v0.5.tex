@@ -10,6 +10,7 @@
 % --- Math ---
 \usepackage{amsmath, amssymb, amsthm, mathtools}
 \usepackage{bm}
+\usepackage{dsfont}  % for \mathds{1} indicator function
 
 % --- Tables ---
 \usepackage{booktabs}
@@ -60,7 +61,7 @@ The aim of the formalism is to construct a mask $\mathbf{M}_t \in [0, 1]^N$ that
 \subsection{Hard mask (binary)}
 
 \begin{equation}
-M_i = \mathbb{1}\!\left[\sigma_i \geq \theta\right]
+M_i = \mathds{1}\!\left[\sigma_i \geq \theta\right]
 \end{equation}
 
 A simple binary mask with threshold $\theta$. Non-differentiable --- requires a straight-through estimator under end-to-end training.
