@@ -1,0 +1,278 @@
+# Formalization of a Dynamic Inhibitory Mask
+
+*Architectural draft of an inhibitory layer for transformers based on tensor projections and precision-weighting in the active inference framework.*
+
+*Version 0.5 — May 2, 2026 (added: alternative adaptation schemes for $D_{\text{baseline}}$ in §5.2, "collapse" failure mode in §9.5, multi-anchor / subspace $\mathcal{G}$ extension in §9.6).*
+
+---
+
+## 1. Basic notation
+
+Let us introduce the following objects:
+
+- $\mathbf{G} \in \mathbb{R}^d$ — **goal anchor vector** in the model's latent space, normalized: $\|\mathbf{G}\| = 1$.
+- $\mathbf{A}_t^{(\ell)} \in \mathbb{R}^{N \times d}$ — **activation tensor** at layer $\ell$ at time $t$, where $N$ is the number of tokens in context, $d$ is the hidden state dimension.
+- $\mathbf{a}_{t,i}^{(\ell)} := \mathbf{A}_t^{(\ell)}[i, :] \in \mathbb{R}^d$ — activation of token $i$ at time $t$ as a vector.
+- $\sigma_i(t) := \dfrac{\mathbf{a}_{t,i}^{(\ell)} \cdot \mathbf{G}}{\|\mathbf{a}_{t,i}^{(\ell)}\|} \in [-1, 1]$ — **cosine similarity** of token $i$'s activation with the goal (drift angle).
+
+The aim of the formalism is to construct a mask $\mathbf{M}_t \in [0, 1]^N$ that modulates each token's contribution to the main model's attention.
+
+**Notational convention.** Where the time $t$ is clear from context, the time index is dropped: $\sigma_i$ instead of $\sigma_i(t)$, $\mathbf{a}_i^{(\ell)}$ instead of $\mathbf{a}_{t,i}^{(\ell)}$. Full notation is used where temporal dynamics is essential (§5).
+
+---
+
+## 2. Basic mask
+
+§2.1–§2.3 present three variants of the function $f: \sigma_i \mapsto M_i$ mapping cosine similarity to a mask weight. §3 gives a fourth variant with a geometric interpretation of an admissibility corridor. **An implementation chooses one of the four** depending on requirements for interpretability, differentiability, and the desired shape of the transition zone. The parameter $\tau$ is present in all variants in the role of "hardness" (the precise semantics differs between variants); the homeostat in §5.2 updates $\tau$ for whichever mask variant has been chosen for implementation.
+
+### 2.1 Hard mask (binary)
+
+$$M_i = \mathbb{1}\!\left[\sigma_i \geq \theta\right]$$
+
+A simple binary mask with threshold $\theta$. Non-differentiable — requires a straight-through estimator under end-to-end training.
+
+### 2.2 Soft sigmoidal mask
+
+$$M_i = \mathrm{sigmoid}\!\left(\tau \cdot (\sigma_i - \theta)\right)$$
+
+- $\theta$ — transition point (typically $\theta = 0$, corresponding to "orthogonality to the goal");
+- $\tau \geq 0$ — **hardness** parameter (precision-analog).
+
+Limiting cases: $\tau \to \infty$ recovers the hard mask; $\tau \to 0$ gives a uniform $M_i \approx 0.5$.
+
+### 2.3 Sparse mask via α-entmax
+
+$$\mathbf{M} = \alpha\text{-entmax}\!\left(\tau \cdot \boldsymbol{\sigma}\right)$$
+
+Yields **exact zeros** for irrelevant tokens while preserving differentiability. Equivalent to softmax with controllable sparsity (Peters et al., 2019).
+
+*Normalization remark.* α-entmax produces a distribution whose elements sum to 1; for use as an element-wise multiplicative mask (rather than as a distribution), rescaling is needed — for example, $\mathbf{M} = N \cdot \alpha\text{-entmax}(\tau \cdot \boldsymbol{\sigma})$, so that the average element is on the order of 1.
+
+---
+
+## 3. Admissibility corridor (safe manifold)
+
+To avoid suppressing useful variation in activations, around the goal vector $\mathbf{G}$ we define an admissibility cone with half-angle $\alpha_{\text{safe}}$. Inside the cone the mask does not interfere; outside it falls smoothly toward zero.
+
+Let $\sigma_{\text{safe}} = \cos(\alpha_{\text{safe}})$. Then:
+
+$$M_i = \begin{cases}
+1, & \sigma_i \geq \sigma_{\text{safe}} \\[2mm]
+\left(\dfrac{\sigma_i}{\sigma_{\text{safe}}}\right)^{\tau}, & 0 \leq \sigma_i < \sigma_{\text{safe}} \\[3mm]
+0, & \sigma_i < 0
+\end{cases}$$
+
+**Geometric interpretation:**
+
+- Inside the cone $\alpha_{\text{safe}}$ around $\mathbf{G}$ — **free-variation zone**, the mask is inactive ($M_i = 1$).
+- In the transition zone $\sigma_i \in [0, \sigma_{\text{safe}})$ — **smooth suppression** with rate controlled by $\tau$.
+- For $\sigma_i < 0$ (activation orthogonal or opposite to the goal) — **hard zeroing**.
+
+The parameter $\alpha_{\text{safe}}$ sets the **width of the admissibility corridor** — a balance between creativity preservation and protection from drift. In practice it is selected through ablation on failure scenarios.
+
+### 3.1 Adaptive percentile threshold
+
+In high-dimensional spaces ($d \sim 10^3$–$10^4$) random unit vectors concentrate around orthogonality (concentration of measure): for $\mathbf{u}, \mathbf{v}$ uniformly distributed on $\mathbb{S}^{d-1}$, the inner product $\sigma = \mathbf{u} \cdot \mathbf{v}$ has mean 0 and variance $1/d$; as $d \to \infty$ the distribution asymptotically approaches $\mathcal{N}(0, 1/d)$. Transformer activations are not random (they lie on a low-dimensional manifold of intrinsic dimension on the order of tens), but their distribution can still concentrate in a narrow band of $\sigma_i$ values, and a fixed threshold $\sigma_{\text{safe}}$ may turn out either too strict or too loose depending on the model state.
+
+An alternative is an **adaptive threshold**, defined as a percentile of the current distribution of similarities:
+
+$$\sigma_{\text{safe}}^{(\text{adapt})}(t) = \mathrm{Percentile}_{p}\!\left(\{\sigma_i(t)\}_{i=1}^{N}\right)$$
+
+where $p \in [50, 90]$ is the target percentile (e.g., $p = 75$ means "the mask does not interfere for the top 25% of tokens most aligned with the goal").
+
+**Advantages:** automatic normalization to the model state; robustness to scale shifts in activations across layers.
+
+**Disadvantages:** dependence on the batch/context; in adversarially constructed scenarios (where **all** context tokens are poorly aligned with the goal) the percentile may not cut off anything.
+
+In practice both approaches (fixed $\sigma_{\text{safe}}$ and adaptive $\sigma_{\text{safe}}^{(\text{adapt})}$) are combinable: $\sigma_{\text{safe}}^{(\text{combined})} = \max(\sigma_{\text{safe}}^{(\text{const})}, \sigma_{\text{safe}}^{(\text{adapt})})$.
+
+The choice of $\max(\cdot)$ (rather than $\min(\cdot)$) yields a **more conservative** rule: a token enters the free-variation zone only if it satisfies **both** conditions simultaneously — exceeds both the absolute threshold and the current batch percentile. This aligns with the safety-oriented logic of the formalism: when in doubt, better to inhibit than to pass through. The alternative $\min(\cdot)$ would yield a more liberal rule (one condition suffices) and suits scenarios where the priority is preserving creativity.
+
+---
+
+## 4. Mask application
+
+### 4.1 Direct application to activations (Hadamard)
+
+$$\tilde{\mathbf{A}}_t^{(\ell)} = \mathrm{diag}(\mathbf{M}_t) \cdot \mathbf{A}_t^{(\ell)}$$
+
+That is, each row $i$ of the activation matrix is multiplied by the scalar $M_i$. This is equivalent to a Hadamard product with broadcasting of the mask across all $d$ columns; the $\mathrm{diag}$ form is more formally precise.
+
+### 4.2 Application via attention masking (preferred variant)
+
+Standard self-attention:
+$$\mathrm{Attention}(Q, K, V) = \mathrm{softmax}\!\left(\frac{Q K^\top}{\sqrt{d_k}}\right) V$$
+
+The modification — additive mask in the logits before softmax:
+$$\mathrm{Attention}_M(Q, K, V) = \mathrm{softmax}\!\left(\frac{Q K^\top}{\sqrt{d_k}} + \log \mathbf{M}_t^\top\right) V$$
+
+When $M_j = 0$ for token $j$, $\log(0) = -\infty$, which after softmax gives an exact zero contribution of token $j$ to the attention output. This is compatible with the standard additive masking mechanism in transformers — **no need to rewrite the model core**.
+
+---
+
+## 5. Dynamic homeostat: $\tau$ as a function of dispersion
+
+The mask's hardness should not be static. As context accumulates, activation heterogeneity grows; the homeostat should respond by strengthening suppression.
+
+### 5.1 Variance of context alignment
+
+As a sensor of heterogeneity we use the **variance** of cosine similarities:
+
+$$D_\sigma(t) = \mathrm{Var}_i(\sigma_i(t)) = \frac{1}{N}\sum_{i=1}^{N}\left(\sigma_i(t) - \bar{\sigma}(t)\right)^2, \qquad \bar{\sigma}(t) = \frac{1}{N}\sum_{i=1}^{N}\sigma_i(t)$$
+
+- When all $\sigma_i$ are close to one another (context homogeneously aligned with the goal **or** homogeneously misaligned) — $D_\sigma$ is low.
+- When $\sigma_i$ are scattered (some tokens aligned with the goal, some competing) — $D_\sigma$ is high.
+
+### 5.2 Feedback rule
+
+$$\boxed{\tau_t = \min\!\left(\tau_{\max}, \; \tau_0 \cdot \exp\!\left(\gamma \cdot (D_\sigma(t) - D_{\text{baseline}})\right)\right)}$$
+
+where:
+- $\tau_0$ — base hardness;
+- $D_{\text{baseline}}$ — target variance (e.g., exponential moving average of the first $K$ steps of a session);
+- $\gamma > 0$ — homeostat gain coefficient;
+- $\tau_{\max}$ — upper bound preventing exponential blowup of $\tau$ in edge cases (typical value 50–100).
+
+**Interpretation:** when context becomes heterogeneous (variance of alignments rises), $\tau$ rises, the mask hardens, suppression strengthens. This is a functional analog of **tonic dopamine** in the PFC attractor model — stabilizing system dynamics under rising noise.
+
+**Lower bound.** When $D_\sigma(t) \ll D_{\text{baseline}}$, $\tau$ approaches zero and the mask becomes inactive — uniform pass-through. This is correct behavior for homogeneously goal-aligned context. In adversarial scenarios "homogeneous context" can mean "homogeneously hostile" (a jailbreak with consistent offset of all tokens from the goal). A lower bound $\tau_{\min} > 0$ guarantees a minimum level of inhibition:
+
+$$\tau_t = \mathrm{clip}\!\left(\tau_0 \cdot \exp(\gamma \cdot (D_\sigma(t) - D_{\text{baseline}})), \, \tau_{\min}, \, \tau_{\max}\right)$$
+
+Typical value $\tau_{\min} \approx 0.5$–$1.0$.
+
+**Adaptation-scheme remark for $D_{\text{baseline}}$.** The target variance $D_{\text{baseline}}$ can be updated by two schemes with different trade-offs:
+
+- **Exponential moving average (EMA):** $D_{\text{baseline}}^{(t+1)} = (1-\alpha) \cdot D_{\text{baseline}}^{(t)} + \alpha \cdot D_\sigma(t)$. Smooth adaptation, all past influences with decaying weight, simple to implement. Suitable for sessions evolving gradually.
+
+- **Sliding window:** $D_{\text{baseline}}^{(t)} = \mathrm{mean}(D_\sigma(t-W), \ldots, D_\sigma(t-1))$ — average over the last $W$ steps. Hard cutoff, past beyond the window has no influence. Suitable for sessions with **sharp phase transitions** (brainstorm $\to$ strict planning, discussion mode $\to$ action mode), where EMA may "stick" in an outdated baseline.
+
+The choice depends on the expected session dynamics; for agentic scenarios with possible regime shifts, sliding window with $W \sim 50$–$200$ steps is recommended.
+
+### 5.3 Alternative via free energy minimization
+
+A variational alternative to the heuristic in §5.2 is to interpret $\tau$ as the **precision $\pi$** over next-token policy and update it by minimizing expected free energy. Full derivation requires choices of generative model, $q_\tau$, and target distribution $p^*$ aligned with $\mathbf{G}$, and is left to future work.
+
+---
+
+## 6. Connection to precision-weighting in active inference
+
+The mask $\mathbf{M}_t$ is functionally equivalent to **precision $\pi_i$** for each token $i$:
+
+$$\pi_i \propto M_i$$
+
+— tokens with high $M_i$ have high precision (the model "trusts" them and passes them on); with low $M_i$ — low (effectively ignored).
+
+In the cortex this function is performed by GABA-ergic lateral inhibition under top-down control of the prefrontal cortex: PFC sends a signal that raises gain on goal-relevant neurons and lowers it on competitors (Desimone & Duncan, 1995; Miller & Cohen, 2001).
+
+In the proposed formalization (functional analogies, not claims of neural realism):
+
+| Biological component | Formal analog |
+|---|---|
+| Goal representation in PFC (delay-period activity) | $\mathbf{G}$ — anchor vector |
+| GABA-ergic inhibitory signal | $\mathbf{M}_t$ — mask |
+| Tonic dopamine (gain modulation) | $\tau_t$ — dynamic hardness |
+| Conflict monitoring in ACC | $D_\sigma(t)$ — heterogeneity signal that $\tau$ responds to |
+
+---
+
+## 7. Architectural draft of the layer
+
+```
+Input context C_t (tokens 1..N)
+    │
+    ├──→ Main transformer (frozen weights)
+    │       For each attention layer ℓ ∈ {1, ..., L}:
+    │           Q, K, V ← projections from prev activations
+    │           logits = QK^T / √d_k
+    │           logits_masked = logits + log(M_t)         ← mask applied here
+    │           weights = softmax(logits_masked)
+    │           output = weights @ V
+    │
+    └──→ Supervisor module (small, separate, low-D)
+            │
+            ├── Goal anchor G (frozen at session start,
+            │                   not updated from context)
+            │
+            ├── Compute σ_i(t) = (a_{t,i} · G) / ||a_{t,i}|| for all i
+            │     (based on a compressed map of activations A_t^(ℓ))
+            │
+            ├── Compute D_σ(t) = Var_i(σ_i(t)) — variance of alignments
+            │
+            ├── Update τ_t ← min(τ_max, τ_0 · exp(γ · (D_σ(t) - D_baseline)))
+            │
+            ├── Compute M_t ← f(σ, τ_t, σ_safe) (see §3)
+            │
+            └──→ Broadcast M_t to all attention layers of the main model
+```
+
+---
+
+## 8. Parameters: summary table
+
+| Parameter | Role | Typical range |
+|---|---|---|
+| $d$ | Hidden state dimension | 768–4096 (model-dependent) |
+| $\mathbf{G}$ | Goal anchor vector | Unit vector in $\mathbb{R}^d$ |
+| $\sigma_{\text{safe}} = \cos(\alpha_{\text{safe}})$ | Admissibility corridor boundary | 0.3–0.7 |
+| $\theta$ | Mask switching threshold | 0.0 (full orthogonality) |
+| $\tau_0$ | Base hardness | 1–10 |
+| $\gamma$ | Homeostat gain | 0.1–1.0 |
+| $D_{\text{baseline}}$ | Target alignment variance | EMA of first $K$ steps |
+| $\tau_{\max}$ | Upper hardness bound (clipping) | 50–100 |
+| $\tau_{\min}$ | Lower hardness bound (optional) | 0.5–1.0 |
+| $p$ | Percentile for adaptive threshold | 50–90 |
+
+All parameters are subject to calibration via ablation on failure scenarios (Mythos-style drift, sycophancy, jailbreaks via context-shift).
+
+---
+
+## 9. Directions of development
+
+The formalization specifies the functional mechanism. The following directions are developed in companion work:
+
+1. **Source of $\mathbf{G}$.** $\mathbf{G}$ is extracted from initial context or the model's long-term priors and must be protected from subsequent context drift and from prompt injection (an injection at session start can poison the goal). Architectural candidates:
+   - Goal induction phase at session start with $\mathbf{G}$ frozen;
+   - Multi-timescale architecture with a slow layer (Yamashita & Tani, 2008);
+   - A separate aggregator module synthesizing $\mathbf{G}$ from multiple sources by analogy with biological convergence of HPC + amygdala + OFC + DLPFC onto PFC;
+   - **Contrastive encoder**, trained on pairs of goal formulations (positive: "send the email" $\leftrightarrow$ "transmit the electronic message"; negative: "send the email" $\leftrightarrow$ "publish the data"). The encoder maps a goal formulation to a stable point in latent space, invariant to paraphrases and robust to surface-level injections. The approach requires a goal-invariance dataset; the domain of applicability is determined by the training distribution.
+
+2. **Parameter calibration.** The parameters $(\theta, \sigma_{\text{safe}}, \tau_0, \gamma, D_{\text{baseline}}, \tau_{\max})$ are calibrated by a trainable supervisor module via bootstrap end-to-end loss with regularization against collapse, or by manual tuning on benchmarks.
+
+3. **Layers of application.** Mask placement (all layers / top layers / specific subset) is a design choice determined by ablation studies. The biological analogy — PFC modulates sensory input hierarchically — suggests a hierarchical schedule as the first hypothesis to test.
+
+4. **Heterogeneity meta-monitor.** When $D_\sigma(t)$ remains high over $T$ consecutive steps (despite tightening of $\tau$), the goal anchor itself has lost relevance — the scene has changed enough that no part of the context is now aligned with $\mathbf{G}$. The biological analog is an ACC signal of persistent conflict, calling not for local correction but for revision of the goal. System responses: (a) request goal recomputation from the supervisor; (b) signal to an external orchestrator; (c) halt the session with notification. Implemented as a separate subsystem — extension of the base formalism. Biological parallel: dorsomedial PFC and ACC perform exactly this function of detecting persistent prediction error and initiating strategic switching.
+
+5. **"Collapse" failure mode.** Under aggressive calibration (high $\gamma$, low $\sigma_{\text{safe}}$, no $\tau_{\min}$ or excessively high $\tau_{\max}$) the mask suppresses almost the entire context except a narrow "echo" of the goal $\mathbf{G}$. The model degrades to repeating the goal's wording — content variety is lost. Observable markers: sharp drop in perplexity *together with* drop in content diversity; repetition of keywords from the goal formulation; reduction in informativeness while topic adherence is formally preserved. **Ablation studies (§10) track this regime** through diversity metrics (distinct-n, self-BLEU) in parallel with drift and perplexity.
+
+6. **Multi-anchor / subspace $\mathcal{G}$.** The basic formalization uses a single unit vector $\mathbf{G}$. For multi-faceted goals with several simultaneously relevant aspects (e.g., "scientific article" = "precise" + "structured" + "data-grounded"), a subspace $\mathcal{G} = \mathrm{span}(\mathbf{g}_1, \ldots, \mathbf{g}_K) \subset \mathbb{R}^d$ is used. Cosine similarity is replaced by the normalized projection of the activation:
+
+   $$\sigma_i = \frac{\|\mathrm{Proj}_\mathcal{G}(\mathbf{a}_{t,i}^{(\ell)})\|}{\|\mathbf{a}_{t,i}^{(\ell)}\|}$$
+
+   where $\mathrm{Proj}_\mathcal{G}$ is the orthogonal projection onto $\mathcal{G}$. *Note:* this generalization yields $\sigma_i \in [0, 1]$ — the **magnitude** of subspace alignment, with no sign. For mask variants whose semantics depend on a signed $\sigma$ (such as the $\sigma < 0$ branch in §3), that branch becomes vacuous; a signed extension would require an oriented half-space rather than a subspace. This removes the "slogan-degradation" risk (item 5) for complex goals. Extension parameters: $K$, training scheme for basis vectors, facet weighting (equal or context-dependent). Natural generalization of the single-vector case, developed in a separate work.
+
+---
+
+## 10. Minimal program for empirical validation
+
+To confirm the formalism's workability in its simplest form:
+
+1. **Baseline measurement** on an available open-source LLM (Llama-3-8B): logit shift when actionable context is added (see separate logit-level analysis experiment).
+2. **Fixed-G prototype**: implement a supervisor with a frozen $\mathbf{G}$ from system prompt, mask applied to the top 1–2 attention layers, parameters tuned manually. Compare logit distributions to baseline.
+3. **Adaptive-τ extension**: enable the homeostat over variance and check whether $\tau$ responds in the expected way to jailbreak-style context.
+4. **Ablation over $\alpha_{\text{safe}}$**: check the trade-off between creativity and drift protection.
+
+Each step is on the order of 1–2 weeks of work on a single GPU.
+
+---
+
+## References (minimal context set)
+
+- Friston, K. (2010). The free-energy principle: a unified brain theory? *Nature Reviews Neuroscience*, 11(2), 127–138.
+- Adams, R. A., Stephan, K. E., Brown, H. R., Frith, C. D., & Friston, K. J. (2013). The computational anatomy of psychosis. *Frontiers in Psychiatry*, 4, 47.
+- Peters, B., Niculae, V., & Martins, A. F. T. (2019). Sparse Sequence-to-Sequence Models. In *Proceedings of ACL 2019*, 1504–1519. arXiv:1905.05702.
+- Desimone, R., & Duncan, J. (1995). Neural mechanisms of selective visual attention. *Annual Review of Neuroscience*, 18, 193–222.
+- Miller, E. K., & Cohen, J. D. (2001). An integrative theory of prefrontal cortex function. *Annual Review of Neuroscience*, 24, 167–202.
+- Yamashita, Y., & Tani, J. (2008). Emergence of functional hierarchy in a multiple timescale neural network model: A humanoid robot experiment. *PLoS Computational Biology*, 4(11), e1000220.
+- Kulveit, J., von Stengel, C., & Leventov, M. (2023). *Predictive Minds: LLMs as Atypical Active Inference Agents.* arXiv:2311.10215.
+- Bulatova, A. (2026). *Why LLM Agents Act Beyond Their Task: A Structural Explanation Through Blocked Adaptation.* EA Forum. https://forum.effectivealtruism.org/posts/EmYkipjGHYLPhAQa4/why-llm-agents-act-beyond-their-task-a-structural
