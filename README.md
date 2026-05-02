@@ -57,7 +57,7 @@ If citing the formalization:
 
 If citing the position paper:
 
-> Bulatova, A. (2026). *The Inhibition Gap: One Missing Mechanism Behind Five LLM Failure Modes.* Substack.
+> Bulatova, A. (2026). *(The Inhibition Gap: One Missing Mechanism Behind Five LLM Failure Modes)[https://bulatovaalsu.substack.com/p/the-inhibition-gap-one-missing-mechanism]* Substack.
 
 
 [Add Substack link / EA Forum profile]
