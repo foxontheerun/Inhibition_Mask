@@ -20,7 +20,7 @@ Files in this repo:
 
 Follow-up that proposes one architectural cause shared by five LLM-agent failure modes (Mythos drift, sycophancy, goal hijacking, lost-in-the-middle, jailbreaks via context-shift): the absence in the transformer architecture of an **active inhibition mechanism conditioned on a stable goal representation**. Includes a falsifiable prediction Anthropic could verify against Mythos attention logs.
 
-[Read the position paper on Substack](#) <!-- replace with Substack URL after publishing -->
+[Read the position paper on Substack](https://bulatovaalsu.substack.com/p/the-inhibition-gap-one-missing-mechanism) 
 
 ### 3. Companion formalization — *Formalization of a Dynamic Inhibitory Mask* (v0.5)
 
@@ -57,7 +57,7 @@ If citing the formalization:
 
 If citing the position paper:
 
-> Bulatova, A. (2026). *(The Inhibition Gap: One Missing Mechanism Behind Five LLM Failure Modes)[https://bulatovaalsu.substack.com/p/the-inhibition-gap-one-missing-mechanism]* Substack.
+> Bulatova, A. (2026). *The Inhibition Gap: One Missing Mechanism Behind Five LLM Failure Modes.* Substack. https://bulatovaalsu.substack.com/p/the-inhibition-gap-one-missing-mechanism
 
 
 [Add Substack link / EA Forum profile]
