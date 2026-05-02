@@ -59,3 +59,5 @@ If citing the position paper:
 
 > Bulatova, A. (2026). *The Inhibition Gap: One Missing Mechanism Behind Five LLM Failure Modes.* Substack.
 
+
+[Add Substack link / EA Forum profile]
