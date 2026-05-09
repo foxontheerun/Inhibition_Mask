@@ -45,9 +45,6 @@ Files in this repo:
 
 The next planned artifact is an empirical follow-up: a Llama-3-8B prototype with a fixed goal vector and a hard binary mask on the upper attention layers, with logit-level analysis of jailbreak/sycophancy prompts vs. creative-prompt controls. Target window: 8 weeks from publication of the position paper.
 
-## License
-
-[CC BY 4.0](LICENSE) — free to share and adapt with attribution.
 
 ## Citation
 
