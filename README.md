@@ -22,7 +22,7 @@ Follow-up that proposes one architectural cause shared by five LLM-agent failure
 
 [Read the position paper on Substack](https://bulatovaalsu.substack.com/p/the-inhibition-gap-one-missing-mechanism) 
 
-### 3. Companion formalization — *Formalization of a Dynamic Inhibitory Mask* (v0.5)
+### 3. Companion formalization — *Formalization of a Dynamic Inhibitory Mask* (v0.6, current)
 
 Formal architectural draft of the inhibitory layer described in the position paper above. Covers:
 
@@ -32,12 +32,26 @@ Formal architectural draft of the inhibitory layer described in the position pap
 - Dynamic τ feedback rule with EMA and sliding-window adaptation schemes
 - Multi-anchor / subspace 𝒢 extension for multi-faceted goals
 - "Collapse" failure mode under aggressive calibration
-- Architectural diagram, parameter table, and minimal validation program
+- **v0.6 adds:** §4.3 projection ablation actuator, §5 scope corridor + harm gate split,
+  control-theory reading, and the dispersion homeostat
 
 Files in this repo:
-- `Inhibition_Mask_Formalization_v0.5.md` — markdown source (browsable on GitHub)
-- `Inhibition_Mask_Formalization_v0.5.tex` — LaTeX source
-- `Inhibition_Mask_Formalization_v0.5.pdf` — compiled PDF
+- `Inhibition_Mask_Formalization_v0.6.md` — **current version** (browsable on GitHub)
+- `Inhibition_Mask_Formalization_v0.5.md` / `.tex` / `.pdf` — previous version
+
+**Empirical amendment (2026-07):** `Inhibition_Mask_Formalization_v0.6_amendment_noneuclidean.md`
+— the hidden-state space is anisotropic, so the Euclidean projections in §4.3 are measured under
+the wrong inner product; the metric-correct form uses `G = Σ⁻¹` (whitening). See the amendment for
+the statement and the empirical evidence (it dissolves a recurring confound on Qwen2.5-3B).
+
+---
+
+### 4. Empirical work — `experiments/register_inhibition/`
+
+Executed notebooks probing the mask on small open models (Qwen2.5-3B/7B): static register ablation,
+the §4.1/§4.2/§4.3 actuator head-to-head, cross-register probes (pirate / Shakespeare / noir / robot),
+and the §5.2 dispersion homeostat (λ breathes with context on a drift attack). Demonstrations of the
+mechanism — single chains, not statistics. A rigorous pre-registered validation track is in progress.
 
 ---
 
